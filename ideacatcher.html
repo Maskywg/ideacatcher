@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <!-- 讓網頁在手機上以正確比例顯示，不可縮放 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- iOS 全螢幕設定 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="點子捕手">
+  
+  <!-- 🔥 指定您的 Logo 圖片 (請確認 icon.png 和這個檔案放在一起) 🔥 -->
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="icon" type="image/png" href="icon.png">
+
+  <title>點子捕手</title>
+  
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 載入 React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- 載入 Babel 以便在瀏覽器編譯 JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    body { background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
+    /* 隱藏捲軸但可滾動 */
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- 圖示元件 (Inline SVGs) ---
+    const IconMic = () => <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>;
+    const IconSquare = () => <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>;
+    const IconSend = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
+    const IconSettings = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>;
+    const IconLoader = () => <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
+
+    function App() {
+      const [transcript, setTranscript] = useState('');
+      const [interimText, setInterimText] = useState('');
+      const [isListening, setIsListening] = useState(false);
+      // 這裡已經自動幫您寫入專屬的 GAS URL
+      const defaultGasUrl = 'https://script.google.com/macros/s/AKfycbxuLDjSx-gmO7lcrFyxV98hcU2ZHApysOMM1L56VY1IE9AYaD9JoXHt8Of7KaJSEapS3w/exec';
+      const [gasUrl, setGasUrl] = useState(() => localStorage.getItem('gasUrl') || defaultGasUrl);
+      const [showSettings, setShowSettings] = useState(false);
+      const [status, setStatus] = useState('idle');
+      const [toast, setToast] = useState({ type: '', message: '' });
+
+      const recognitionRef = useRef(null);
+      const isListeningRef = useRef(isListening);
+
+      useEffect(() => {
+        isListeningRef.current = isListening;
+      }, [isListening]);
+
+      useEffect(() => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          showToast('error', '您的瀏覽器不支援語音輸入，請使用 Chrome 或 Safari。');
+          return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'zh-TW';
+
+        recognition.onresult = (event) => {
+          let currentInterim = '';
+          let currentFinal = '';
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              currentFinal += event.results[i][0].transcript;
+            } else {
+              currentInterim += event.results[i][0].transcript;
+            }
+          }
+
+          if (currentFinal) {
+            setTranscript(prev => prev + currentFinal);
+          }
+          setInterimText(currentInterim);
+        };
+
+        recognition.onerror = (event) => {
+          console.error("語音辨識錯誤:", event.error);
+          if (event.error === 'not-allowed') {
+            showToast('error', '請允許麥克風權限');
+            setIsListening(false);
+          }
+        };
+
+        recognition.onend = () => {
+          if (isListeningRef.current) {
+            try { recognition.start(); } catch (e) { setIsListening(false); }
+          } else {
+            setInterimText('');
+          }
+        };
+
+        recognitionRef.current = recognition;
+        return () => {
+          if (recognitionRef.current) {
+             recognitionRef.current.stop();
+          }
+        };
+      }, []);
+
+      const showToast = (type, message) => {
+        setToast({ type, message });
+        setTimeout(() => setToast({ type: '', message: '' }), 3000);
+      };
+
+      const toggleListening = () => {
+        if (isListening) {
+          setIsListening(false);
+          recognitionRef.current?.stop();
+        } else {
+          setIsListening(true);
+          try { recognitionRef.current?.start(); } catch (e) { console.error(e); }
+        }
+      };
+
+      const handleSaveToCloud = async () => {
+        if (!gasUrl) {
+            showToast('error', '請先設定 GAS 網址');
+            setShowSettings(true);
+            return;
+        }
+        if (!transcript.trim()) return;
+
+        setStatus('saving');
+        if (isListening) {
+          setIsListening(false);
+          recognitionRef.current?.stop();
+        }
+
+        try {
+          await fetch(gasUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ idea: transcript })
+          });
+
+          showToast('success', '已成功儲存到雲端！');
+          setTranscript('');
+        } catch (error) {
+          showToast('error', '儲存失敗，請檢查網路。');
+        } finally {
+          setStatus('idle');
+        }
+      };
+
+      return (
+        <div className="h-screen w-full bg-gray-100 flex flex-col font-sans sm:max-w-md sm:mx-auto sm:shadow-2xl sm:my-4 sm:h-[90vh] sm:rounded-3xl overflow-hidden relative">
+          
+          {toast.message && (
+            <div className={`absolute top-16 left-1/2 transform -translate-x-1/2 z-50 flex items-center px-5 py-3 rounded-full shadow-lg text-white font-medium text-sm w-11/12 max-w-[320px] ${toast.type === 'success' ? 'bg-gray-800' : 'bg-red-600'}`}>
+              <span className="truncate">{toast.message}</span>
+            </div>
+          )}
+
+          <header className="bg-white px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
+            <h1 className="text-xl font-bold text-gray-800 flex items-center">
+              <span className="text-2xl mr-2">💡</span> 點子捕手
+            </h1>
+            <button onClick={() => setShowSettings(true)} className="p-2 text-gray-400 hover:text-gray-800 hover:bg-gray-100 rounded-full">
+              <IconSettings />
+            </button>
+          </header>
+
+          <main className="flex-1 bg-gray-50 p-5 flex flex-col relative overflow-hidden">
+            <div className={`bg-white rounded-3xl shadow-sm border p-5 flex flex-col h-full relative transition-all duration-300 ${isListening ? 'border-indigo-300 ring-4 ring-indigo-50' : 'border-gray-200'}`}>
+              <textarea
+                className="flex-1 resize-none outline-none text-gray-800 text-lg leading-relaxed bg-transparent w-full"
+                placeholder="點擊下方麥克風開始說話，紀錄您的絕佳點子..."
+                value={transcript}
+                onChange={(e) => setTranscript(e.target.value)}
+              />
+              
+              {interimText && (
+                <div className="mt-4 pt-3 border-t border-gray-100 text-indigo-500 font-medium text-sm flex items-center">
+                  <span className="mr-2 animate-spin"><IconLoader /></span>
+                  {interimText}
+                </div>
+              )}
+              
+              <div className="absolute bottom-4 right-5 text-xs text-gray-400 font-medium">
+                {transcript.length} 字
+              </div>
+            </div>
+          </main>
+
+          <footer className="bg-white border-t border-gray-100 px-6 py-4 pb-8 sm:pb-4 flex items-center justify-between shrink-0">
+            <button
+              onClick={() => setTranscript('')}
+              disabled={!transcript}
+              className="p-3 text-gray-400 hover:text-red-500 disabled:opacity-30 font-medium text-sm"
+            >
+              清空
+            </button>
+
+            <div className="relative flex justify-center items-center">
+              {isListening && <div className="absolute w-20 h-20 bg-red-400 rounded-full animate-ping opacity-30"></div>}
+              <button
+                onClick={toggleListening}
+                className={`relative p-5 rounded-full text-white shadow-lg transition-transform transform active:scale-90 z-10 ${isListening ? 'bg-red-500' : 'bg-indigo-600'}`}
+              >
+                {isListening ? <IconSquare /> : <IconMic />}
+              </button>
+            </div>
+
+            <button
+              onClick={handleSaveToCloud}
+              disabled={!transcript.trim() || status === 'saving'}
+              className={`p-4 rounded-full transition ${transcript.trim() && status !== 'saving' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-300 bg-gray-50'}`}
+            >
+              {status === 'saving' ? <IconLoader /> : <IconSend />}
+            </button>
+          </footer>
+
+          {showSettings && (
+            <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm">
+              <div className="bg-white w-full rounded-t-[2rem] p-6 pb-10 shadow-2xl animate-in slide-in-from-bottom-8">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-800">⚙️ 雲端設定</h2>
+                  <button onClick={() => setShowSettings(false)} className="p-2 text-gray-400 font-bold text-xl hover:bg-gray-100 rounded-full w-10 h-10 flex items-center justify-center">X</button>
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">GAS 網址</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-indigo-500 text-sm"
+                    value={gasUrl}
+                    onChange={(e) => setGasUrl(e.target.value)}
+                  />
+                </div>
+                <button
+                  onClick={() => { localStorage.setItem('gasUrl', gasUrl); setShowSettings(false); showToast('success', '設定已儲存'); }}
+                  className="w-full py-3.5 bg-gray-900 text-white font-semibold rounded-xl active:scale-95 transition-transform"
+                >
+                  儲存設定
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
